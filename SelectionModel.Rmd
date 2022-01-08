@@ -21,7 +21,7 @@ L'objectif de ce devoir serait d'effectuer les analyses pertinentes sur les donn
 Définir le répertoir de travail et lire le jeu de données
 ```{r, message=FALSE,warning=FALSE,error=FALSE,results = 'hide'}
 rm(list=ls());
-setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+#setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 library(readr)
 d <- read_csv("meteo.train.csv")
@@ -167,8 +167,8 @@ anova(model_step_bck, model_step_fwd, test = "LRT")
 ## 1-pchisq(deviance(model_step_fwd)-deviance(model_step_bck),df.residual(model_step_fwd)-df.residual(model_step_bck))
 ## les 2 manières nous donnent le même résultat
 ```
-On constate que la p-value est assez faible < 0,05, ce dernier nous explique le modèle plus compliqué est plus utile que celui plus simple. Ici, il s'agit le model_step_bck. Autremeent, la différence entre l'AIC de model_step_bck et model_step_fwd est statistiquement significative.
-On va regarder le critère BIC, on a la tendance de choisir un modèle dont le BIC est plus petit. De ce qu'on voit, le BIC du model_step_fwd est plus grand que celui model_step_bck et la marge entre les 2 valeurs est bien significative (>5)
+On constate que la p-value est assez faible < 0,05, ce dernier nous explique le modèle plus compliqué est plus utile que celui plus simple. Ici, il s'agit le model_step_bck. Autrement dit, la différence entre l'AIC de model_step_bck et model_step_fwd est statistiquement significative.
+Quant au critère BIC, on a la tendance de choisir le modèle dont le BIC est plus petit. De ce qu'on voit, le BIC du model_step_fwd est plus grand que celui model_step_bck et la marge entre les 2 valeurs est bien significative (>5)
 ```{r, message=FALSE,warning=FALSE}
 BIC(model_step_bck)
 BIC(model_step_fwd)

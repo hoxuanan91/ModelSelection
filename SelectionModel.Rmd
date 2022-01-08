@@ -1,0 +1,237 @@
+---
+title: "Modèle linéaire généralisé et Choix de modèles"
+author: "An"
+date: "08/01/2022"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+
+
+## Introduction
+
+L'objectif de ce devoir serait d'effectuer les analyses pertinentes sur les données de météo à Bâle. On cherche à prétendire s’il pleuvra le lendemain dans cette ville. Pour cette variable d’intérêt :<br />
+&ensp;• &ensp;proposer et valider un modèle ;<br />
+&ensp;• &ensp;proposer une prédiction binaire pour les lendemains des journées incluses dans le fichier meteo.test.csv ;<br />
+
+## Analyse de données et Pré-traitement
+
+Définir le répertoir de travail et lire le jeu de données
+```{r, message=FALSE,warning=FALSE,error=FALSE,results = 'hide'}
+rm(list=ls());
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+library(readr)
+d <- read_csv("meteo.train.csv")
+```
+
+
+On verra s'il y a  des valeurs manquante et puis les enlever.
+```{r, message=FALSE,warning=FALSE,error=FALSE,results = 'hide'}
+apply(apply(d,2,is.na),2,sum)
+d <- d[complete.cases(d), ]
+```
+
+
+Dans notre jeu de données, j'ai constaté que les 6 premieres colones sont les informations précisant le moment d'observation. L'objectif de notre travail serait de prédire la pluie de lendemain en fonction des conditions  météorologiques  sans dépendement du moment d'observation. On va donc les enlever.
+
+```{r, message=FALSE,warning=FALSE,error=FALSE,results = 'hide'}
+d.meteo = d[-c(1:6)]
+```
+
+Je crée une fonction qui permet de transformer le libellé des colonnes en raccourci
+
+```{r, message=FALSE,warning=FALSE,error=FALSE,results = 'hide'}
+ clean_heads_name <- function(.data, unique = FALSE) {
+    n <- if (is.data.frame(.data)) colnames(.data) else .data
+    n <- gsub("Direction","dir",n)
+    n <- gsub("^Temperature","te",n)
+    n <- gsub("^Wind","wi",n)
+    n <- gsub("Duration","dur",n)
+    n <- gsub("^Relative","rel",n)
+    n <- gsub("^relative","rel",n)
+    n <- gsub("humidity","hu",n)
+    n <- gsub("Humidity","hu",n)
+    n <- gsub("Pressure","press",n)
+    n <- gsub("pressure","press",n)
+    n <- gsub("^Cloud","clo",n)
+    n <- gsub("cloud","clo",n)
+    n <- gsub("[^a-zA-Z0-9_]+", "_", n)
+    n <- gsub("([A-Z][a-z])", "_\\1", n)
+    n <- tolower(trimws(n))
+    n <- gsub("(^_+|_+$)", "", n)
+
+    if (unique) n <- make.unique(n, sep = "_")
+    
+    if (is.data.frame(.data)) {
+      colnames(.data) <- n
+      .data
+    } else {
+      n
+    }
+  }
+  
+library(dplyr)
+d.meteo <- d.meteo %>%  clean_heads_name()
+```
+
+## Méthodologie
+
+  Pour notre jeu de données, l'idée est de le diviser en deux parties : l'une (90%) pour construire notre modèle et l'autre (10%) pour valider sa prédiction (Cross-Validation)
+```{r, message=FALSE,warning=FALSE,error=FALSE,results = 'hide'}
+index<-1:nrow(d.meteo)
+testindex<-c(1:trunc(length(index)*0.9))
+### il fautdrait utiliser  la fonction sample() afin d'extraire notre échantillon d'entraînement
+### mais cela va impacter le résultat de l'analyse de modèle dans le rapport car à chaque fois le fichier rmd est rendu, l'échantillon va changer
+
+d.trainset = d.meteo[testindex,]
+#enlever la variable à expliquer "Pluie_demain"
+d.trainset.NoRainResult = d.trainset[-c(41)]
+d.testset  = d.meteo[-testindex,]
+```
+
+```{r, message=FALSE,warning=FALSE}
+library(corrplot)
+corrplot(cor(d.trainset.NoRainResult), type="upper", order="hclust", tl.col="black", tl.srt=45)
+```
+<br />
+Il y a bien une forte corrélation d'entre certaines variables : 
+on n'utilisera qu'une seule  parmis les variables quasi colinéaires. Donc, le modèle qu'on va chercher ne contients pas certainement tous les variables
+
+
+On cherche à expliquer la variable d’intérêt "Pluie_Demain". Dans mon observation, cette variable présente seulement 2 modalités : "TRUE" ou "FALSE". Dans ce cas-là, on utilise la régression logistique binaire (c’est-à-dire de type « oui / non » ou « vrai / faux ») pour construire notre modèle logistique.
+
+<br />
+Il y a plusieurs critères pour comparer 2 modèles : R^2, R^2 ajusté, Cp Mallow, AIC et BIC
+Pour savoir lequel qui nous intéresse, on a une formule  (SCR(m0) − SCR(m1))/SCR(m1) × (n − |m0| − 1) ≤ q <br />
+dont m0,m1 sont les degrée de liberté des modèle m0 et m1. n est le nombre des données <br />
+1. q = 4 pour le test de Fisher <br />
+2. q = −∞ pour le R2 <br />
+3. q = 1 pour le R2 ajusté<br />
+4. q = 2 pour le Cp de Mallows <br />
+5. q =  2 n × (n − |m0| − 1) pour AIC<br />
+6. q =  log n/n × (n − |m0| − 1) pour BIC<br />
+
+Vu la taille de nos données est importante, AIC et BIC seraient préférable pour être considérés comme les critères pricipaux pour la sélection de modèle<br />
+Pour ce faire, Il y a plusieurs méthodes : Méthode pas à pas ou Sélection de modèles exhaustive. On va proposer 2 modèles différents à partir de la méthode Pas à Pas combinée avec un des 6 crtitères étudiées précédement et choisir lequel qui nous conviendrait mieux à l'aide de sa qualité de prédiction.
+
+L'objectif est de choisir un modèle dont AIC et BIC sont les plus petis. On n’est donc pas sûr d’obtenir un minimum
+global. Pour la méthode "pas à pas", nous avons 3 manières réalisées :
+<br />
+1. Méthode ascendante (forward selection) : A chaque pas, une variable est
+ajoutée au modèle, celle qui a l’apport le plus important (que l’on peut mesurer
+pour un test par celle qui a la plus petite p-valeur).<br />
+2.Méthode descendante (backard selection) : A chaque pas, une variable est
+enlevée au modèle, celle qui le plus fort impact (que l’on peut mesurer pour un test
+par celle qui a la plus grande p-valeur).<br />
+3.Méthode progressive (stepwise selection) : C’est la même méthode que la
+méthode ascendante, à l'exception que'à chaque étape, on peut remettre en cause
+une variable présente dans le modèle selon la méthode descendante.<br />
+
+## Sélection de modèle
+On définit d'abord le modèle complet et le modèle minimum
+```{r, message=FALSE,warning=FALSE,error=FALSE,results = 'hide'}
+model_complet<-glm(d.trainset$pluie_demain~.,data=d.trainset.NoRainResult,family=binomial())
+model_min<-glm(d.trainset$pluie_demain~1,data=d.trainset.NoRainResult,family=binomial())
+```
+Définissons le modèle de manière ascendante et de manière descendante
+```{r, message=FALSE,warning=FALSE,error=FALSE,results = 'hide'}
+model_step_bck <- step(model_complet,direction="backward",k=log(nrow(d.trainset)))
+model_step_fwd <- step(model_min,direction="forward",scope=list(lower=formula(model_min),upper=formula(model_complet)))
+```
+
+```{r, message=FALSE,warning=FALSE}
+summary(model_step_bck)
+summary(model_step_fwd)
+```
+
+Vu l'AIC du model_step_bck est plus petit que celui du model_step_fwd. On va essayer d'analyser ce modèle
+On commence par comparer notre modèle au modèle sans covariable
+```{r, message=FALSE,warning=FALSE}
+pchisq(1472.2-1124.9, 1061     - 1050    , lower = F)
+```
+On obtient une p-valeur très faible : on rejette le modèle sans covariable. Ce dernier exlique que notre modèle est donc utile.
+<br/>
+Comparons maintenant notre modèle au modèle saturé
+```{r, message=FALSE,warning=FALSE}
+pchisq(1124.9, 1052  , lower = F)
+```
+La p-valeur est > 5% : on rejette le modèle saturé. Autrement dit, notre modèle est suffisant.<br/>
+Cette fois-ci, on va comparer les 2 modèles model_step_bck et model_step_fwd en faisant le test "likelihood ratio test".
+
+```{r, message=FALSE,warning=FALSE}
+anova(model_step_bck, model_step_fwd, test = "LRT")
+## on peut calculer manuellement sans passer la fonction ANOVA
+## 1-pchisq(deviance(model_step_fwd)-deviance(model_step_bck),df.residual(model_step_fwd)-df.residual(model_step_bck))
+## les 2 manières nous donnent le même résultat
+```
+On constate que la p-value est assez faible < 0,05, ce dernier nous explique le modèle plus compliqué est plus utile que celui plus simple. Ici, il s'agit le model_step_bck. Autremeent, la différence entre l'AIC de model_step_bck et model_step_fwd est statistiquement significative.
+On va regarder le critère BIC, on a la tendance de choisir un modèle dont le BIC est plus petit. De ce qu'on voit, le BIC du model_step_fwd est plus grand que celui model_step_bck et la marge entre les 2 valeurs est bien significative (>5)
+```{r, message=FALSE,warning=FALSE}
+BIC(model_step_bck)
+BIC(model_step_fwd)
+abs(BIC(model_step_bck) - BIC(model_step_fwd)
+)
+```
+
+Pour décider définitvement lequel qui nous convient mieux, on va aller à l'étape prochaine 
+
+## Prédiction
+```{r, message=FALSE,warning=FALSE}
+model_step_bck.predict<-predict(model_step_bck,d.testset,type="response")
+model_step_fwd.predict<-predict(model_step_fwd,d.testset,type="response")
+```
+
+Avant de valider la prédiction, on va faire  une fonction permettant de calculer le taux d'erreur entre la prédiction et la réalité. 
+```{r, message=FALSE,warning=FALSE}
+calculate_error_rate <- function(y_obs,y_pred){
+  mc <- table(y_obs,y_pred)
+  print("Matrice de confusion :")
+  print(mc)
+  #nb mal classés
+  wrong <- sum(mc) - sum(diag(mc))
+  print(paste("Mal classés :",wrong))
+  #taux d'erreur
+  err <- wrong/sum(mc)
+  print(paste("taux erreur (%) :",err*100))
+  #intervalle de confiance
+  #effectif
+  n <- sum(mc)
+  #écart-type
+  et <- sqrt(err*(1-err)/n)
+  #quantile loi normale 95%
+  z <- qnorm(0.95)
+  #borne basse
+  bb <- err - z * et
+  bh <- err + z * et
+  # bornes intervalle
+  print("Bornes intervalle de confiance")
+  print(c(bb,bh))
+}
+```
+
+On définit un seuil de prédiction à 50% pour que le lendemain soit considère comme un jour "pluvieux" 
+```{r, message=FALSE,warning=FALSE}
+threeshold <- 0.5
+calculate_error_rate(d.testset$pluie_demain,ifelse(model_step_bck.predict>threeshold,"TRUE","FALSE"))
+calculate_error_rate(d.testset$pluie_demain,ifelse(model_step_fwd.predict>threeshold,"TRUE","FALSE"))
+```
+
+Pour model_step_fwd, nous avons obtenu un taux d'erreur à 27.966% par rapport à 29.66% de model_step_bck et la borne d'intervalle est mieux amélioré que celle de model_step_bck. Ce chiffre me semble acceptable. Donc, le model_step_fwd me convient plus. <br />
+Néanmoins, en réalité, pour pouvoir trouver le meuilleur modèle, cela dépend significativement du jeu d'entraînement et également du seuil de prédiction. En pratique, on devrait toujours  améliorer notre modèle en enrichissant notre jeu d'entrainement et maintenir les test sur la validation de prédiction. Dans ce devoir, les variables dans le modèle pourraient varier en fonction de l'échantillon qu'on a définit au début. 
+
+
+## Prédiction du jeu de test
+```{r, message=FALSE,warning=FALSE,error=FALSE,results = 'hide'}
+library(readr)
+meteo.test = read_csv('meteo.test.csv')
+
+d.meteo.test<-meteo.test[-c(1:6)]
+d.meteo.test <- d.meteo.test %>%  clean_heads_name()
+
+model.predict.test<-predict(model_step_fwd,d.meteo.test,type="response")
+predict.demain= (model.predict.test >= 0.5)
+d.model.predict <- cbind(d.meteo.test,predict.demain)
+```
